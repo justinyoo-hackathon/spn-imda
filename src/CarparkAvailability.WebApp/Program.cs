@@ -9,7 +9,7 @@ builder.Services
     .AddInteractiveServerComponents();
 builder.Services.AddHttpClient<ParkingApiClient>(client =>
 {
-    client.BaseAddress = new Uri("https+http://apiapp");
+    client.BaseAddress = new Uri(builder.Configuration["ApiApp:BaseUrl"] ?? "https+http://apiapp");
 });
 
 WebApplication app = builder.Build();
