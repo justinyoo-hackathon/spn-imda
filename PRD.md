@@ -8,16 +8,19 @@
 | Product | Smart Parking Navigator |
 | Repository | `justinyoo-hackathon/spn-imda` |
 | Related Issue | Closes `justinyoo-hackathon/spn-imda#2` |
-| Status | Draft - Pending sign-off |
-| Version | 0.1.0 |
+| Status | Approved |
+| Version | 1.0.0 |
 | Last Updated | 2026-08-19 |
 | Authors | GitHub Copilot Coding Agent |
 | Reviewers | Workshop participant, repository maintainers |
+| Approved By | `justinyoo-hackathon` |
+| Approval Date | 2026-08-19 |
 
 ## Revision History
 
 | Version | Date | Author | Summary |
 | --- | --- | --- | --- |
+| 1.0.0 | 2026-08-19 | GitHub Copilot Coding Agent | Mark document approved for implementation planning |
 | 0.1.0 | 2026-08-19 | GitHub Copilot Coding Agent | Initial workshop-sized MVP PRD draft |
 
 ## 1. Product Summary
@@ -280,7 +283,7 @@ unavailable, empty, or errored.
 
 ## 11. Release Readiness for Workshop Step 03
 
-This PRD is ready for implementation planning once reviewers confirm:
+This PRD is approved for implementation planning. Reviewers confirmed:
 
 - The MVP scope is narrow enough for the workshop
 - The acceptance criteria are testable
