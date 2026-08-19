@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace CarparkAvailability.ApiApp;
 
-public sealed class LiveAvailabilityClient
+public sealed class LiveAvailabilityClient : IDisposable
 {
     private static readonly string[] SupportedLotTypes = ["C", "H", "S", "Y"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -276,5 +276,10 @@ public sealed class LiveAvailabilityClient
         ];
 
         return candidatePaths.FirstOrDefault(File.Exists) ?? candidatePaths[0];
+    }
+
+    public void Dispose()
+    {
+        _refreshLock.Dispose();
     }
 }

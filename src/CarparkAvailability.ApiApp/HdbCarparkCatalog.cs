@@ -19,6 +19,7 @@ public sealed class HdbCarparkCatalog
     private readonly List<HdbCarparkRecord> _records = [];
     private readonly Dictionary<string, HdbCarparkRecord> _recordsByNumber = new(StringComparer.OrdinalIgnoreCase);
     private readonly IReadOnlyList<DestinationSuggestion> _aliasSuggestions;
+    private readonly IReadOnlyCollection<string> _carParkTypes;
 
     public HdbCarparkCatalog(IHostEnvironment environment, Svy21CoordinateConverter converter, ILogger<HdbCarparkCatalog> logger)
     {
@@ -32,6 +33,11 @@ public sealed class HdbCarparkCatalog
 
         ExcludedRowCount = Load(csvPath, converter);
         LoadedCount = _records.Count;
+        _carParkTypes = _records.Select(record => record.CarParkType)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         _aliasSuggestions = BuildAliasSuggestions();
 
         _logger.LogInformation("Loaded {LoadedCount} HDB carparks and excluded {ExcludedRowCount} malformed rows.", LoadedCount, ExcludedRowCount);
@@ -43,12 +49,7 @@ public sealed class HdbCarparkCatalog
 
     public IReadOnlyList<HdbCarparkRecord> Records => _records;
 
-    public IReadOnlyCollection<string> CarParkTypes =>
-        _records.Select(record => record.CarParkType)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+    public IReadOnlyCollection<string> CarParkTypes => _carParkTypes;
 
     public HdbCarparkRecord? FindByCarparkNumber(string carparkNumber)
     {
