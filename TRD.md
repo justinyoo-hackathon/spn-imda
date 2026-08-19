@@ -143,7 +143,7 @@ Technical requirements:
 - Support published lot types only:
   - `C` Cars
   - `H` Heavy vehicles
-  - `S` Motorcycles with side car
+  - `S` Motorcycles with sidecar
   - `Y` Motorcycles
 - Tolerate backward-compatible additive fields.
 - Treat missing required fields, incompatible types, or structural mismatches as
