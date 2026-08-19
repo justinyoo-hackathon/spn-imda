@@ -5,4 +5,7 @@
     <Project Path="src/CarparkAvailability.ServiceDefaults/CarparkAvailability.ServiceDefaults.csproj" />
     <Project Path="src/CarparkAvailability.WebApp/CarparkAvailability.WebApp.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CarparkAvailability.ApiApp.Tests/CarparkAvailability.ApiApp.Tests.csproj" />
+  </Folder>
 </Solution>

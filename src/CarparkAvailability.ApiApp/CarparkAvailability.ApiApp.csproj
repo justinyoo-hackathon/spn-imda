@@ -12,5 +12,9 @@
              Link="Data\HDBCarparkInformation.csv"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\data\carpark-availability-sample.json"
+             Link="Data\carpark-availability-sample.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

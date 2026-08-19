@@ -1,4 +1,5 @@
 using CarparkAvailability.WebApp.Components;
+using CarparkAvailability.WebApp;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -6,6 +7,10 @@ builder.AddServiceDefaults();
 builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddHttpClient<ParkingApiClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["ApiApp:BaseUrl"] ?? "https+http://apiapp");
+});
 
 WebApplication app = builder.Build();
 

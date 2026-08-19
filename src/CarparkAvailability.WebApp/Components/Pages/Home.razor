@@ -1,28 +1,492 @@
 @page "/"
+@using System.Globalization
+@inject ParkingApiClient ParkingApiClient
 
 <PageTitle>Smart Parking Navigator</PageTitle>
 
 <section class="hero">
-    <p class="eyebrow">Workshop starter</p>
-    <h1>Find a suitable HDB car park near your destination.</h1>
+    <p class="eyebrow">Mocked destination search</p>
+    <h1>Find nearby HDB car parks with fresh, stale, and unavailable parking states.</h1>
     <p>
-        The Aspire application is running. Use the workshop guides to design and
-        implement destination search, live availability, filters, and map-based
-        results.
+        This workshop build uses ApiApp to search mock Singapore destinations from the bundled
+        HDB dataset until external API keys are configured. Parking data still stays behind the
+        API boundary.
     </p>
 </section>
 
-<section class="starter-grid" aria-label="Starter application status">
-    <article>
-        <h2>Frontend</h2>
-        <p>The Blazor Web App is ready for implementation.</p>
+<section class="planner">
+    <article class="panel controls-panel">
+        <div class="field-stack">
+            <label for="destination-search">Destination</label>
+            <input id="destination-search"
+                   type="search"
+                   autocomplete="off"
+                   placeholder="Try Bugis, Tampines, or Toa Payoh"
+                   value="@_query"
+                   @oninput="HandleSearchInputAsync" />
+
+            @if (_suggestions.Count > 0)
+            {
+                <ul class="suggestions" aria-label="Destination suggestions">
+                    @foreach (DestinationSuggestion suggestion in _suggestions)
+                    {
+                        <li>
+                            <button type="button" @onclick="() => SelectDestinationAsync(suggestion)">
+                                <strong>@suggestion.Label</strong>
+                                <span>@suggestion.Description</span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="toolbar">
+            <button class="primary-action" type="button" @onclick="SearchAsync" disabled="@_isLoading">Search nearby car parks</button>
+            @if (_selectedDestination is not null)
+            {
+                <button class="secondary-action" type="button" @onclick="RefreshAsync" disabled="@_isLoading">Refresh data</button>
+            }
+        </div>
+
+        <div class="selection-summary">
+            @if (_selectedDestination is null)
+            {
+                <p>No destination selected yet.</p>
+            }
+            else
+            {
+                <p>
+                    <strong>@_selectedDestination.Label</strong><br />
+                    <span>@FormatCoordinates(_selectedDestination.Latitude, _selectedDestination.Longitude)</span>
+                </p>
+            }
+        </div>
+
+        <div class="filter-grid">
+            <label class="checkbox-field">
+                <input type="checkbox" @bind="_availableOnly" />
+                <span>Available lots only</span>
+            </label>
+
+            <label class="checkbox-field">
+                <input type="checkbox" @bind="_nightParkingOnly" />
+                <span>Night parking only</span>
+            </label>
+
+            <label>
+                <span>Vehicle type</span>
+                <select @bind="_lotType">
+                    <option value="C">Cars</option>
+                    <option value="H">Heavy vehicles</option>
+                    <option value="S">Motorcycles with sidecar</option>
+                    <option value="Y">Motorcycles</option>
+                </select>
+            </label>
+
+            <label>
+                <span>Car-park type</span>
+                <select @bind="_carParkType">
+                    <option value="">All</option>
+                    @foreach (string option in _carParkTypeOptions)
+                    {
+                        <option value="@option">@option</option>
+                    }
+                </select>
+            </label>
+        </div>
     </article>
-    <article>
-        <h2>Backend</h2>
-        <p>ASP.NET Core, health endpoints, and the HDB dataset are wired.</p>
-    </article>
-    <article>
-        <h2>Orchestration</h2>
-        <p>.NET Aspire runs both projects and supplies API credentials.</p>
+
+    <article class="panel map-panel">
+        <div class="panel-header">
+            <h2>Map preview</h2>
+            <span>List and map stay in sync without exposing the data.gov.sg key.</span>
+        </div>
+
+        @if (_searchResponse is null || _searchResponse.Results.Count == 0 || _selectedDestination is null)
+        {
+            <div class="empty-state">
+                <p>Select a destination to see nearby car parks on the mock map.</p>
+            </div>
+        }
+        else
+        {
+            <svg class="map-preview" viewBox="0 0 100 100" role="img" aria-label="Parking result map preview">
+                <rect x="0" y="0" width="100" height="100" rx="8" ry="8" />
+                @foreach (MapPoint point in BuildMapPoints())
+                {
+                    if (point.IsDestination)
+                    {
+                        <g class="destination-point" transform="translate(@point.X @point.Y)">
+                            <path d="M 0 -4 L 1.25 -1.25 L 4 0 L 1.25 1.25 L 0 4 L -1.25 1.25 L -4 0 L -1.25 -1.25 Z" />
+                        </g>
+                    }
+                    else
+                    {
+                        <circle class="@(point.IsSelected ? "selected-point" : "result-point")"
+                                cx="@point.X"
+                                cy="@point.Y"
+                                r="3.6"
+                                @onclick="() => SelectCarparkAsync(point.CarparkNumber!)" />
+                    }
+                }
+            </svg>
+
+            <div class="map-legend">
+                <span><strong>✦</strong> Destination</span>
+                <span><strong>●</strong> Nearby HDB car park</span>
+            </div>
+        }
     </article>
 </section>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <section class="status-banner @GetStatusClass()">
+        <strong>@GetStatusTitle()</strong>
+        <p>@_message</p>
+    </section>
+}
+
+<section class="results-layout">
+    <article class="panel results-panel">
+        <div class="panel-header">
+            <h2>Nearby car parks</h2>
+            @if (_searchResponse is not null)
+            {
+                <span>@_searchResponse.Results.Count result(s) within 500 metres</span>
+            }
+        </div>
+
+        @if (_isLoading)
+        {
+            <div class="empty-state">
+                <p>Loading nearby parking data…</p>
+            </div>
+        }
+        else if (_selectedDestination is null)
+        {
+            <div class="empty-state">
+                <p>Search a Singapore destination to compare nearby HDB car parks.</p>
+            </div>
+        }
+        else if (_searchResponse is null || _searchResponse.Results.Count == 0)
+        {
+            <div class="empty-state">
+                <p>No HDB car parks matched the current destination and filters.</p>
+            </div>
+        }
+        else
+        {
+            <ul class="results-list">
+                @foreach (CarparkResult result in _searchResponse.Results)
+                {
+                    <li>
+                        <button class="result-card @(result.CarParkNumber == _selectedCarparkNumber ? "selected" : null)"
+                                type="button"
+                                @onclick="() => SelectCarparkAsync(result.CarParkNumber)">
+                            <div class="result-card-header">
+                                <div>
+                                    <h3>@result.Address</h3>
+                                    <p>@result.CarParkType · @result.ParkingSystem</p>
+                                </div>
+                                <span class="badge @result.FreshnessState.ToString().ToLowerInvariant()">@result.FreshnessState</span>
+                            </div>
+
+                            <dl>
+                                <div>
+                                    <dt>Distance</dt>
+                                    <dd>@FormatDistance(result.DistanceMeters)</dd>
+                                </div>
+                                <div>
+                                    <dt>Available</dt>
+                                    <dd>@FormatLots(result.AvailableLots, result.TotalLots)</dd>
+                                </div>
+                                <div>
+                                    <dt>Occupancy</dt>
+                                    <dd>@FormatOccupancy(result.OccupancyRate)</dd>
+                                </div>
+                                <div>
+                                    <dt>Updated</dt>
+                                    <dd>@FormatDateTime(result.SourceUpdateTimeSgt)</dd>
+                                </div>
+                            </dl>
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
+    </article>
+
+    <aside class="panel detail-panel">
+        <div class="panel-header">
+            <h2>Car-park details</h2>
+            @if (_selectedDetail is not null)
+            {
+                <span>@_selectedDetail.Carpark.CarParkNumber</span>
+            }
+        </div>
+
+        @if (_selectedDetail is null)
+        {
+            <div class="empty-state">
+                <p>Select a nearby car park to review its details.</p>
+            </div>
+        }
+        else
+        {
+            <section class="detail-card">
+                <h3>@_selectedDetail.Carpark.Address</h3>
+                <p class="detail-meta">
+                    @_selectedDetail.Carpark.CarParkType · @_selectedDetail.Carpark.ParkingSystem
+                </p>
+
+                <div class="detail-stats">
+                    <article>
+                        <span>Lots</span>
+                        <strong>@FormatLots(_selectedDetail.Carpark.AvailableLots, _selectedDetail.Carpark.TotalLots)</strong>
+                    </article>
+                    <article>
+                        <span>Occupancy</span>
+                        <strong>@FormatOccupancy(_selectedDetail.Carpark.OccupancyRate)</strong>
+                    </article>
+                    <article>
+                        <span>Updated</span>
+                        <strong>@FormatDateTime(_selectedDetail.Carpark.SourceUpdateTimeSgt)</strong>
+                    </article>
+                </div>
+
+                <dl class="detail-grid">
+                    <div><dt>Short-term parking</dt><dd>@_selectedDetail.Carpark.ShortTermParking</dd></div>
+                    <div><dt>Free parking</dt><dd>@_selectedDetail.Carpark.FreeParking</dd></div>
+                    <div><dt>Night parking</dt><dd>@_selectedDetail.Carpark.NightParking</dd></div>
+                    <div><dt>Decks</dt><dd>@(_selectedDetail.Carpark.Decks?.ToString(CultureInfo.InvariantCulture) ?? "N/A")</dd></div>
+                    <div><dt>Gantry height</dt><dd>@(_selectedDetail.Carpark.GantryHeight?.ToString("0.0", CultureInfo.InvariantCulture) ?? "N/A") m</dd></div>
+                    <div><dt>Basement</dt><dd>@(_selectedDetail.Carpark.IsBasement ? "Yes" : "No")</dd></div>
+                </dl>
+
+                <h4>Availability by supported lot type</h4>
+                <ul class="lot-list">
+                    @foreach ((string lotType, LotAvailability lotAvailability) in _selectedDetail.Carpark.AvailabilityByLotType.OrderBy(entry => entry.Key))
+                    {
+                        <li>
+                            <span>@GetLotTypeLabel(lotType)</span>
+                            <strong>@lotAvailability.AvailableLots / @lotAvailability.TotalLots</strong>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+    </aside>
+</section>
+
+@code {
+    private readonly string[] _carParkTypeOptions =
+    [
+        "BASEMENT CAR PARK",
+        "MECHANISED AND SURFACE CAR PARK",
+        "MECHANISED CAR PARK",
+        "MULTI-STOREY CAR PARK",
+        "SURFACE CAR PARK"
+    ];
+
+    private List<DestinationSuggestion> _suggestions = [];
+    private DestinationSuggestion? _selectedDestination;
+    private ParkingSearchResponse? _searchResponse;
+    private CarparkDetailResponse? _selectedDetail;
+    private DataStatusResponse? _status;
+    private string _query = string.Empty;
+    private string _selectedCarparkNumber = string.Empty;
+    private string _lotType = "C";
+    private string _carParkType = string.Empty;
+    private bool _availableOnly;
+    private bool _nightParkingOnly;
+    private bool _isLoading;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await ParkingApiClient.GetStatusAsync();
+        UpdateMessage(_status);
+    }
+
+    private async Task HandleSearchInputAsync(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        _selectedDestination = null;
+        _selectedCarparkNumber = string.Empty;
+        _selectedDetail = null;
+        _suggestions = (await ParkingApiClient.SearchDestinationsAsync(_query)).ToList();
+    }
+
+    private async Task SelectDestinationAsync(DestinationSuggestion suggestion)
+    {
+        _selectedDestination = suggestion;
+        _query = suggestion.Label;
+        _suggestions.Clear();
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        if (_selectedDestination is null)
+        {
+            IReadOnlyList<DestinationSuggestion> matches = await ParkingApiClient.SearchDestinationsAsync(_query);
+            _selectedDestination = matches.FirstOrDefault();
+
+            if (_selectedDestination is null)
+            {
+                _searchResponse = null;
+                _selectedDetail = null;
+                _selectedCarparkNumber = string.Empty;
+                _message = "No Singapore destination matched that search. Try an HDB area such as Bugis, Tampines, or Toa Payoh.";
+                return;
+            }
+        }
+
+        _isLoading = true;
+        _message = null;
+
+        try
+        {
+            _searchResponse = await ParkingApiClient.SearchAsync(new ParkingSearchRequest(
+                _selectedDestination.Latitude,
+                _selectedDestination.Longitude,
+                _selectedDestination.Label,
+                _lotType,
+                _availableOnly,
+                _nightParkingOnly,
+                string.IsNullOrWhiteSpace(_carParkType) ? null : _carParkType));
+
+            _status = _searchResponse.Status;
+            UpdateMessage(_status);
+
+            if (_searchResponse.Results.Count > 0)
+            {
+                _selectedCarparkNumber = _searchResponse.Results[0].CarParkNumber;
+                await SelectCarparkAsync(_selectedCarparkNumber);
+            }
+            else
+            {
+                _selectedCarparkNumber = string.Empty;
+                _selectedDetail = null;
+            }
+        }
+        catch (Exception)
+        {
+            _searchResponse = null;
+            _selectedCarparkNumber = string.Empty;
+            _selectedDetail = null;
+            _message = "The API could not complete the parking search. Check that ApiApp is running and try again.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private Task RefreshAsync() => SearchAsync();
+
+    private async Task SelectCarparkAsync(string carparkNumber)
+    {
+        _selectedCarparkNumber = carparkNumber;
+        _selectedDetail = await ParkingApiClient.GetDetailAsync(carparkNumber);
+    }
+
+    private void UpdateMessage(DataStatusResponse? status)
+    {
+        if (status is null)
+        {
+            _message = null;
+            return;
+        }
+
+        _message = status.WarningMessage ?? status.FreshnessState switch
+        {
+            FreshnessState.Fresh => $"Live availability updated {FormatDateTime(status.SourceUpdateTimeSgt)}.",
+            FreshnessState.Stale => $"Availability data is stale. Last update: {FormatDateTime(status.SourceUpdateTimeSgt)}.",
+            FreshnessState.Unavailable => "Live availability is currently unavailable.",
+            _ => "An error occurred while retrieving parking data."
+        };
+    }
+
+    private string GetStatusTitle() => _status?.FreshnessState switch
+    {
+        FreshnessState.Fresh => "Fresh data",
+        FreshnessState.Stale => "Stale data",
+        FreshnessState.Unavailable => "Availability unavailable",
+        FreshnessState.Error => "Search error",
+        _ => "Parking data"
+    };
+
+    private string GetStatusClass() => _status?.FreshnessState switch
+    {
+        FreshnessState.Fresh => "fresh",
+        FreshnessState.Stale => "stale",
+        FreshnessState.Unavailable => "unavailable",
+        FreshnessState.Error => "error",
+        _ => string.Empty
+    };
+
+    private IEnumerable<MapPoint> BuildMapPoints()
+    {
+        if (_selectedDestination is null || _searchResponse is null || _searchResponse.Results.Count == 0)
+        {
+            return [];
+        }
+
+        IEnumerable<double> latitudes = _searchResponse.Results.Select(result => result.Latitude).Append(_selectedDestination.Latitude);
+        IEnumerable<double> longitudes = _searchResponse.Results.Select(result => result.Longitude).Append(_selectedDestination.Longitude);
+
+        double minLat = latitudes.Min();
+        double maxLat = latitudes.Max();
+        double minLon = longitudes.Min();
+        double maxLon = longitudes.Max();
+
+        double latRange = Math.Max(maxLat - minLat, 0.001d);
+        double lonRange = Math.Max(maxLon - minLon, 0.001d);
+
+        List<MapPoint> points =
+        [
+            new(null, true, false, Scale(_selectedDestination.Longitude, minLon, lonRange), Scale(maxLat - _selectedDestination.Latitude, 0d, latRange))
+        ];
+
+        points.AddRange(_searchResponse.Results.Select(result =>
+            new MapPoint(
+                result.CarParkNumber,
+                false,
+                result.CarParkNumber == _selectedCarparkNumber,
+                Scale(result.Longitude, minLon, lonRange),
+                Scale(maxLat - result.Latitude, 0d, latRange))));
+
+        return points;
+    }
+
+    private static double Scale(double value, double min, double range) => 8d + (((value - min) / range) * 84d);
+
+    private static string FormatCoordinates(double latitude, double longitude) =>
+        $"{latitude.ToString("0.00000", CultureInfo.InvariantCulture)}, {longitude.ToString("0.00000", CultureInfo.InvariantCulture)}";
+
+    private static string FormatDistance(double? distanceMeters) =>
+        distanceMeters is null ? "N/A" : $"{Math.Round(distanceMeters.Value):0} m";
+
+    private static string FormatLots(int? availableLots, int? totalLots) =>
+        availableLots is null || totalLots is null ? "Unavailable" : $"{availableLots} / {totalLots}";
+
+    private static string FormatOccupancy(double? occupancyRate) =>
+        occupancyRate is null ? "Unavailable" : $"{Math.Round(occupancyRate.Value * 100d):0}%";
+
+    private static string FormatDateTime(DateTimeOffset? value) =>
+        value?.ToString("dd MMM yyyy HH:mm 'SGT'", CultureInfo.InvariantCulture) ?? "Unavailable";
+
+    private static string GetLotTypeLabel(string lotType) => lotType switch
+    {
+        "C" => "Cars",
+        "H" => "Heavy vehicles",
+        "S" => "Motorcycles with sidecar",
+        "Y" => "Motorcycles",
+        _ => lotType
+    };
+
+    private sealed record MapPoint(string? CarparkNumber, bool IsDestination, bool IsSelected, double X, double Y);
+}
